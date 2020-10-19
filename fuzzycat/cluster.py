@@ -22,15 +22,17 @@ try:
 except ImportError as exc:
     import json
 
-class LineProcessor:
+class AbstractLineProcessor:
     """
     Process input linewise and cache the result based on the sha1 of the input.
+    Some artifacts are huge and it is a bit laborious to keep track manually.
     """
     def __init__(self, line_input=None, encoding='utf-8',
                  base=os.path.join(os.path.expanduser("~"), ".cache", "fuzzycat"),
                  key="default"):
         """
-        The line_input is a callable, returning the next line to work on.
+        The line_input is a callable, returning the next line to work on. Set
+        the key as a general cache key, e.g. to the sha1 of the raw input file.
         """
         self.line_input = line_input or fileinput.input
         self.encoding = encoding
@@ -38,6 +40,10 @@ class LineProcessor:
         self.key = key
 
     def cache_id(self):
+        """
+        If the input (given by key) changes, the cache id should change. Also,
+        when the code is different.
+        """
         sha1 = hashlib.sha1()
         sha1.update(bytes(self.key, encoding="utf-8"))
         sha1.update(bytes(inspect.getsource(self.run), encoding="utf-8"))
@@ -48,9 +54,15 @@ class LineProcessor:
         return os.path.join(self.base, cid[:2], cid[2:])
 
     def run(self):
+        raise NotImplementedError
+
+class LineProcessor(AbstractLineProcessor):
+
+    def run(self):
         cf = self.cache_file()
         if os.path.exists(cf):
             return cf
+
         stats = collections.Counter()
         with tempfile.NamedTemporaryFile(delete=False, mode="w") as tf:
             for line in self.line_input():
@@ -72,7 +84,6 @@ class LineProcessor:
         os.rename(tf.name, cf)
         return cf
 
-
 def main():
     parser = argparse.ArgumentParser(prog='fuzzycat-cluster',
                                      usage='%(prog)s [options]',
@@ -80,5 +91,5 @@ def main():
     parser.add_argument("-t", "--type", default="title", help="clustering variant to use")
     args = parser.parse_args()
 
-    proc = LineProcessor(key="100k")
+    proc = LineProcessor(key="100K")
     cached = proc.run()
