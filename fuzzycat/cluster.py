@@ -20,10 +20,8 @@ import tempfile
 import re
 import string
 
-try:
-    import orjson as json
-except ImportError as exc:
-    import json
+import orjson as json
+import fuzzy
 
 DEFAULT_CACHE_DIR = os.path.join(os.path.expanduser("~"), ".cache", "fuzzycat")
 
@@ -115,10 +113,38 @@ def cluster_by_title_normalized(args):
     os.remove(sbc)
     os.remove(tf.name)
 
+def cluster_by_title_nysiis(args):
+    """
+    Soundex on title.
+    """
+    with tempfile.NamedTemporaryFile(delete=False, mode="w") as tf:
+        for line in fileinput.input(files=args.files if len(args.files) > 0 else ('-', )):
+            doc = json.loads(line)
+            try:
+                id = doc["ident"]
+                title = doc["title"]
+                if not title:
+                    continue
+                else:
+                    title = fuzzy.nysiis(title)
+            except KeyError as err:
+                continue
+
+            print("%s\t%s" % (id, title))
+            print("%s\t%s" % (id, title), file=tf)
+
+    sbc = sort_by_column(tf.name, opts="-k 2")
+    for doc in group_by_column(sbc, key=cut(f=1), value=cut(f=0), comment="t"):
+        print(json.dumps(doc).decode("utf-8"))
+
+    os.remove(sbc)
+    os.remove(tf.name)
+
 def main():
     types = {
         "title": cluster_by_title,
         "title_normalized": cluster_by_title_normalized,
+        "title_nysiis": cluster_by_title_nysiis,
     }
     parser = argparse.ArgumentParser(prog='fuzzycat-cluster',
                                      usage='%(prog)s [options]',
@@ -130,4 +156,8 @@ def main():
     if args.list:
         print("\n".join(types.keys()))
         return
-    types.get(args.type)(args)
+    func = types.get(args.type)
+    if func is None:
+        print("invalid type: {}".format(args.type))
+        return
+    func(args)
